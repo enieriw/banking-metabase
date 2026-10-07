@@ -1,0 +1,29 @@
+version: 2
+
+sources:
+  - name: banking_raw
+    database: datawarehouse
+    schema: raw
+    tables:
+      - name: users
+      - name: cards
+      - name: mcc_codes
+      - name: transactions
+
+models:
+  - name: stg_users
+    columns:
+      - name: user_id
+        tests: [unique, not_null]
+  - name: stg_cards
+    columns:
+      - name: card_id
+        tests: [unique, not_null]
+  - name: stg_transactions
+    columns:
+      - name: transaction_id
+        tests: [unique, not_null]
+  - name: stg_mcc_codes
+    columns:
+      - name: mcc_id
+        tests: [unique, not_null]

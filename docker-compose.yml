@@ -1,0 +1,140 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: airflow_postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=${AIRFLOW_DB_USER}
+      - POSTGRES_PASSWORD=${AIRFLOW_DB_PASS}
+      - POSTGRES_DB=${AIRFLOW_DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # ─────────────────────────── PostgreSQL ──────────────────────────
+  postgres-source:
+    image: postgres:15
+    container_name: postgres_source
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: ${CDC_USER}
+      POSTGRES_PASSWORD: ${CDC_PASS}
+      POSTGRES_DB: ${CDC_DB}
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_wal_senders=4"
+      - "-c"
+      - "max_replication_slots=4"
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_source_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U cdc_user -d cdc_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  postgres-dw:
+    image: postgres:15
+    container_name: postgres_dw
+    restart: always
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: ${DW_USER}
+      POSTGRES_PASSWORD: ${DW_PASS}
+      POSTGRES_DB: ${DW_DB}
+    volumes:
+      - postgres_dw_data:/var/lib/postgresql/data
+      - ./postgres/init_dw.sql:/docker-entrypoint-initdb.d/init_dw.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U dw_user -d datawarehouse" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  data-generator:
+    build: ./data_generator
+    container_name: data_generator
+    restart: always
+    environment:
+      DB_USER: ${CDC_USER}
+      DB_PASS: ${CDC_PASS}
+      DB_NAME: ${CDC_DB}
+    depends_on:
+      postgres-source:
+        condition: service_healthy
+
+  airflow:
+    build: .
+    container_name: airflow
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__CORE__FERNET_KEY=Ccp5fDJ6eftRh057jsmL1DidMd0O4tpZ1yzplwNi-Lw=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASS}@postgres:5432/${AIRFLOW_DB_NAME}
+      - AIRFLOW_CONN_POSTGRES_SOURCE=postgresql://${CDC_USER}:${CDC_PASS}@postgres-source:5432/${CDC_DB}
+      - DW_USER=${DW_USER}
+      - DW_PASS=${DW_PASS}
+      - DW_DB=${DW_DB}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./dbt:/opt/airflow/dbt
+    ports:
+      - "8080:8080"
+    command: bash -c "airflow db migrate && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin && airflow webserver"
+
+  scheduler:
+    build: .
+    container_name: airflow_scheduler
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__CORE__FERNET_KEY=Ccp5fDJ6eftRh057jsmL1DidMd0O4tpZ1yzplwNi-Lw=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASS}@postgres:5432/${AIRFLOW_DB_NAME}
+      - AIRFLOW_CONN_POSTGRES_SOURCE=postgresql://${CDC_USER}:${CDC_PASS}@postgres-source:5432/${CDC_DB}
+      - DW_USER=${DW_USER}
+      - DW_PASS=${DW_PASS}
+      - DW_DB=${DW_DB}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./dbt:/opt/airflow/dbt
+    command: bash -c "airflow scheduler"
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: ${DW_DB}
+      MB_DB_PORT: 5432
+      MB_DB_USER: ${DW_USER}
+      MB_DB_PASS: ${DW_PASS}
+      MB_DB_HOST: postgres-dw
+
+volumes:
+  postgres_data:
+  postgres_source_data:
+  postgres_dw_data:

@@ -1,0 +1,29 @@
+name: 'airflow_dbt_demo'
+version: '1.0.0'
+config-version: 2
+
+profile: 'airflow_dbt_demo'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  airflow_dbt_demo:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table
+
+    banking:
+      staging:
+        +materialized: view
+      marts:
+        +materialized: table

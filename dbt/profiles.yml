@@ -1,0 +1,12 @@
+airflow_dbt_demo:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: postgres-dw
+      user: "{{ env_var('DW_USER') }}"
+      password: "{{ env_var('DW_PASS') }}"
+      port: 5432
+      dbname: "{{ env_var('DW_DB') }}"
+      schema: analytics
+      threads: 4
